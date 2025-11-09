@@ -1,0 +1,32 @@
+# Build folders
+build/
+out/
+bin/
+
+# CMake generated
+CMakeCache.txt
+CMakeFiles/
+Makefile
+cmake_install.cmake
+*.vcxproj*
+*.sln
+
+# Compiled binaries
+*.exe
+*.dll
+*.lib
+*.obj
+*.pdb
+*.o
+*.a
+
+# Editor / OS stuff
+.vs/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Python cache (if using glad generator)
+__pycache__/
+*.pyc
