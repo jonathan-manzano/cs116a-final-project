@@ -18,6 +18,7 @@ int main()
     if (!glfwInit())
         return -1;
 
+    // tells GLFW what kind of OpenGL context to request when creating the window
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
@@ -25,7 +26,14 @@ int main()
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 #endif
 
-    GLFWwindow *window = glfwCreateWindow(800, 600, "Terrain Renderer", nullptr, nullptr);
+    GLFWwindow *window = glfwCreateWindow(
+        800,                    // window width in pixels
+        600,                   // window height in pixels
+        "Terrain Renderer",            // window title (shown in title bar)
+        nullptr,         // fullscreen monitor (nullptr = windowed)
+        nullptr           // Window to share OpenGL context with (nullptr = no sharing)
+    );
+
     if (!window)
     {
         glfwTerminate();
@@ -42,12 +50,16 @@ int main()
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
     // ---------------- Heightmap loading ----------------
-    stbi_set_flip_vertically_on_load(true); // optional
+
+     // aligns png/jpeg image formats with OpenGL's coordinate system. 
+     // Image formats usually have the origin at the top-left corner, 
+     // while OpenGL has the origin at the bottom left
+    stbi_set_flip_vertically_on_load(true);
 
     const char* heightmapPath = "assets/heightmapper-1764410934226.png";
     int imgWidth  = 0;
     int imgHeight = 0;
-    int imgChannels = 0;
+    int imgChannels = 0; // a channel is one color component per pixel. ex: 1 channel: Grayscale, 3: RGB, 4: RGBA
 
     unsigned char* imageData = stbi_load(
         heightmapPath,
@@ -86,8 +98,9 @@ int main()
     // ---------------- Build terrain mesh from heightmap ----------------
 
     // Subsample factor: take every Nth pixel to keep vertex count reasonable
-    const int step = 8; // try 8 or 16; smaller = more detail, more vertices
+    const int step = 8; // smaller step = more vertices
 
+    // dimensions of vertex grid
     const int gridWidth  = imgWidth  / step;
     const int gridHeight = imgHeight / step;
 
@@ -96,18 +109,24 @@ int main()
 
     float heightScale = 0.3f;             // vertical exaggeration
 
+    // loop through every position in the vertex grid
+    // sample the corresponding pixel in the heightmap
+    // map grid position to 3D X, Z coordinates
+    // convert pixel brightness to height (Y coord)
     for (int j = 0; j < gridHeight; ++j)       // j = row (y in image)
     {
         for (int i = 0; i < gridWidth; ++i)    // i = column (x in image)
         {
+            // convert grid position to image coordinates
             int imgX = i * step;
             int imgY = j * step;
 
-            int index = imgY * imgWidth + imgX;
-            unsigned char hByte = imageData[index];
-            float h = static_cast<float>(hByte) / 255.0f; // 0..1
+            int index = imgY * imgWidth + imgX; //convert 2D coordinate to 1D index for the image data array
+            unsigned char hByte = imageData[index]; // get pixel value (brightness)
+            float h = static_cast<float>(hByte) / 255.0f; // normalize to 0-1 range
 
-            // Map i,j to X,Z in [-1, 1]
+            // map grid position to 3D X, Z coordinates
+            // [-1, 1] range, because OpenGL clip space is that range
             float x = (static_cast<float>(i) / (gridWidth - 1)) * 2.0f - 1.0f;
             float z = (static_cast<float>(j) / (gridHeight - 1)) * 2.0f - 1.0f;
 
@@ -122,14 +141,20 @@ int main()
     // We no longer need imageData once vertices are built (for this step)
     stbi_image_free(imageData);
 
-    // Build index buffer (two triangles per grid cell)
+    // Build index buffer that defines which vertices form triangles.
+    // instead of storing vertex data multiple times (since triangles can share vertices), 
+    // we store each vertex once and use indices to reference them
     std::vector<unsigned int> indices;
-    indices.reserve((gridWidth - 1) * (gridHeight - 1) * 6);
+    indices.reserve((gridWidth - 1) * (gridHeight - 1) * 6); // # of grid cells * 6 indices per cell (2 triangles with 3 vertices each)
 
+    // iterate through each grid cell (NOT vertex position like the first loop)
+    // a grid cell is a square formed by 4 adjacent vertices 
     for (int j = 0; j < gridHeight - 1; ++j)
     {
         for (int i = 0; i < gridWidth - 1; ++i)
         {
+            // calculate the indices of the 4 corners of the current grid cell
+            // i0-i4 are indices in the 1D vertices array
             unsigned int i0 = j * gridWidth + i;
             unsigned int i1 = j * gridWidth + (i + 1);
             unsigned int i2 = (j + 1) * gridWidth + i;
@@ -152,19 +177,27 @@ int main()
 
     // ---------------- OpenGL buffers for terrain mesh ----------------
 
+    // VAO - Vertex Array Object: Container that stores vertex attribute configurations and buffer bindings. The settings for how vertex data shouls be read by the GPU
+    // VBO - Vertex Buffer Object: Container that stores vertex data (ex: positions and colors)
+    // EBO - Element Buffer Object: Container that stores indices
     unsigned int terrainVAO, terrainVBO, terrainEBO;
+
+    // creates 1 of each needed array/buffer object and stores their IDs in the above vars
     glGenVertexArrays(1, &terrainVAO);
     glGenBuffers(1, &terrainVBO);
     glGenBuffers(1, &terrainEBO);
 
+    // bind terrainVAO so that the following vertex attribure configuration are stored in it
     glBindVertexArray(terrainVAO);
 
+    // upload vertex data to GPU
     glBindBuffer(GL_ARRAY_BUFFER, terrainVBO);
     glBufferData(GL_ARRAY_BUFFER,
                  vertices.size() * sizeof(float),
                  vertices.data(),
                  GL_STATIC_DRAW);
 
+    // upload index data to GPU
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, terrainEBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER,
                  indices.size() * sizeof(unsigned int),
@@ -173,16 +206,16 @@ int main()
 
     // position attribute: layout(location = 0) in vec3 aPos;
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(
-        0,
-        3,
+    glVertexAttribPointer( // tell OpenGL how to read the data
+        0,            // attribute location
+        3,              // 3 components per vertex
         GL_FLOAT,
         GL_FALSE,
         3 * sizeof(float),
         (void*)0
     );
 
-    glBindVertexArray(0);
+    glBindVertexArray(0); //unbind terrainVAO when not needed for best practice
 
     // ---------------- Shader & matrices ----------------
 
@@ -199,24 +232,24 @@ int main()
     shader.setMat4("view", identity);
     shader.setMat4("projection", identity);
 
-    // Draw in wireframe to see the mesh
+    // draws only edges instead of filled triangles for now
     glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
     // ---------------- Render loop ----------------
     while (!glfwWindowShouldClose(window))
     {
-        glClearColor(0.1f, 0.2f, 0.3f, 1.0f);
+        glClearColor(0.1f, 0.2f, 0.3f, 1.0f); //background color
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        shader.use();
-        glBindVertexArray(terrainVAO);
+        shader.use(); //sets the active shader program in OpenGL's state. glDrawElements knows to use this shader
+        glBindVertexArray(terrainVAO); // bind again, so OpenGL knows which vertices and indices to use which we set earlier
         glDrawElements(GL_TRIANGLES,
                        static_cast<GLsizei>(indices.size()),
                        GL_UNSIGNED_INT,
                        (void*)0);
 
         glfwSwapBuffers(window);
-        glfwPollEvents();
+        glfwPollEvents();  // processes window events (keyboard, mouse, window close, etc.)
     }
 
     // cleanup
