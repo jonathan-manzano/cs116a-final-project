@@ -39,8 +39,54 @@ bool tKeyPressed = false;
 bool cameraControlActive = false;
 
 // Terrain settings
-const int HEIGHTMAP_STEP = 8;        // Subsample factor (higher = fewer vertices)
-const float HEIGHT_SCALE = 0.3f;     // Vertical exaggeration
+const int HEIGHTMAP_STEP = 8;
+const float HEIGHT_SCALE = .375f;  
+
+// Skybox cube vertices (36 vertices, 6 faces)
+const float skyboxVertices[] = {
+    // positions          
+    -1.0f,  1.0f, -1.0f,
+    -1.0f, -1.0f, -1.0f,
+     1.0f, -1.0f, -1.0f,
+     1.0f, -1.0f, -1.0f,
+     1.0f,  1.0f, -1.0f,
+    -1.0f,  1.0f, -1.0f,
+
+    -1.0f, -1.0f,  1.0f,
+    -1.0f, -1.0f, -1.0f,
+    -1.0f,  1.0f, -1.0f,
+    -1.0f,  1.0f, -1.0f,
+    -1.0f,  1.0f,  1.0f,
+    -1.0f, -1.0f,  1.0f,
+
+     1.0f, -1.0f, -1.0f,
+     1.0f, -1.0f,  1.0f,
+     1.0f,  1.0f,  1.0f,
+     1.0f,  1.0f,  1.0f,
+     1.0f,  1.0f, -1.0f,
+     1.0f, -1.0f, -1.0f,
+
+    -1.0f, -1.0f,  1.0f,
+    -1.0f,  1.0f,  1.0f,
+     1.0f,  1.0f,  1.0f,
+     1.0f,  1.0f,  1.0f,
+     1.0f, -1.0f,  1.0f,
+    -1.0f, -1.0f,  1.0f,
+
+    -1.0f,  1.0f, -1.0f,
+     1.0f,  1.0f, -1.0f,
+     1.0f,  1.0f,  1.0f,
+     1.0f,  1.0f,  1.0f,
+    -1.0f,  1.0f,  1.0f,
+    -1.0f,  1.0f, -1.0f,
+
+    -1.0f, -1.0f, -1.0f,
+    -1.0f, -1.0f,  1.0f,
+     1.0f, -1.0f, -1.0f,
+     1.0f, -1.0f, -1.0f,
+    -1.0f, -1.0f,  1.0f,
+     1.0f, -1.0f,  1.0f
+};
 
 // ============================================================================
 // FUNCTION DECLARATIONS
@@ -288,12 +334,42 @@ int main()
     glBindVertexArray(0);
 
     // ========================================================================
+    // SETUP SKYBOX
+    // ========================================================================
+    
+    unsigned int skyboxVAO, skyboxVBO;
+    glGenVertexArrays(1, &skyboxVAO);
+    glGenBuffers(1, &skyboxVBO);
+    
+    glBindVertexArray(skyboxVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, skyboxVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(skyboxVertices), skyboxVertices, GL_STATIC_DRAW);
+    
+    // Position attribute for skybox
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    
+    glBindVertexArray(0);
+    
+    std::cout << "Skybox initialized\n";
+
+    // ========================================================================
     // LOAD SHADERS
     // ========================================================================
     
-    Shader shader("shaders/vertex.glsl", "shaders/fragment.glsl",
-                  "shaders/tess_control.glsl", "shaders/tess_eval.glsl");
-    shader.use();
+    Shader terrainShader("shaders/vertex.glsl", "shaders/fragment.glsl",
+                         "shaders/tess_control.glsl", "shaders/tess_eval.glsl");
+    
+    Shader skyboxShader("shaders/skybox_vertex.glsl", "shaders/skybox_fragment.glsl");
+    
+    if (!terrainShader.isValid() || !skyboxShader.isValid())
+    {
+        std::cerr << "ERROR: Failed to load shaders. Check shaders/ directory.\n";
+        glfwTerminate();
+        return -1;
+    }
+    
+    std::cout << "Shaders loaded successfully\n";
     
     // Set tessellation patch size
     glPatchParameteri(GL_PATCH_VERTICES, 3);
@@ -319,18 +395,30 @@ int main()
         glClearColor(0.1f, 0.2f, 0.3f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // Activate shader
-        shader.use();
-
-        // Setup matrices
-        glm::mat4 model = glm::mat4(1.0f);
+        // Setup matrices (used by both skybox and terrain)
         glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
         glm::mat4 projection = glm::perspective(glm::radians(fov), 800.0f / 600.0f, 
                                                 0.1f, 100.0f);
 
-        shader.setMat4("model", &model[0][0]);
-        shader.setMat4("view", &view[0][0]);        shader.setMat4("projection", &projection[0][0]);
-        shader.setVec3("viewPos", &cameraPos[0]);
+        // ===== RENDER SKYBOX =====
+        glDepthFunc(GL_LEQUAL); // Change depth function for skybox
+        skyboxShader.use();
+        skyboxShader.setMat4("view", &view[0][0]);
+        skyboxShader.setMat4("projection", &projection[0][0]);
+        
+        glBindVertexArray(skyboxVAO);
+        glDrawArrays(GL_TRIANGLES, 0, 36);
+        glBindVertexArray(0);
+        glDepthFunc(GL_LESS); // Restore default depth function
+
+        // ===== RENDER TERRAIN =====
+        terrainShader.use();
+        
+        glm::mat4 model = glm::mat4(1.0f);
+        terrainShader.setMat4("model", &model[0][0]);
+        terrainShader.setMat4("view", &view[0][0]);
+        terrainShader.setMat4("projection", &projection[0][0]);
+        terrainShader.setVec3("viewPos", &cameraPos[0]);
 
         // Draw terrain
         glBindVertexArray(terrainVAO);
@@ -346,6 +434,8 @@ int main()
     glDeleteVertexArrays(1, &terrainVAO);
     glDeleteBuffers(1, &terrainVBO);
     glDeleteBuffers(1, &terrainEBO);
+    glDeleteVertexArrays(1, &skyboxVAO);
+    glDeleteBuffers(1, &skyboxVBO);
     
     glfwTerminate();
     return 0;
