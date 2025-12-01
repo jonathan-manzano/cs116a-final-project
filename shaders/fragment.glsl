@@ -98,13 +98,27 @@ void main()
     vec3 baseColor = getTerrainColor(heightVal);
     
     // Add procedural texture detail using UV coordinates
-    float detailScale = 20.0;
+    float detailScale = 25.0; // Reduced for performance
     float noiseVal = noise(TexCoord * detailScale);
     
-    // Mix in noise for texture variation (subtle)
-    baseColor = mix(baseColor, baseColor * noiseVal, 0.15);
+    // Add another layer of detail at different scale
+    float largeScale = 6.0; // Reduced
+    float largeNoise = noise(TexCoord * largeScale);
     
-    // ===== LIGHTING =====
+    // Combine noise layers for more interesting texture
+    float combinedNoise = mix(noiseVal, largeNoise, 0.5);
+    
+    // Mix in noise for texture variation - reduced intensity
+    baseColor = mix(baseColor, baseColor * combinedNoise, 0.18);
+    
+    // Calculate normal once (used for both slope and lighting)
+    vec3 norm = normalize(Normal);
+    
+    // Add color variation based on slope (steeper = darker)
+    float slope = 1.0 - abs(norm.y);
+    baseColor = mix(baseColor, baseColor * 0.7, slope * 0.3);
+    
+    // ===== LIGHTING (BLINN-PHONG) =====
     
     vec3 lightDir = normalize(vec3(0.3, 1.0, 0.2));
     vec3 lightColor = vec3(1.0);
@@ -112,18 +126,17 @@ void main()
     // Ambient lighting
     vec3 ambient = 0.3 * baseColor;
     
-    // Diffuse lighting
-    vec3 norm = normalize(Normal);
+    // Diffuse lighting (reuse norm from above)
     float diff = max(dot(norm, lightDir), 0.0);
     vec3 diffuse = diff * baseColor * lightColor;
     
-    // Specular lighting (less intense for terrain)
+    // Blinn-Phong specular lighting
     vec3 viewDir = normalize(viewPos - FragPos);
-    vec3 reflectDir = reflect(-lightDir, norm);
-    float spec = pow(max(dot(viewDir, reflectDir), 0.0), 16.0);
+    vec3 halfwayDir = normalize(lightDir + viewDir); // Blinn-Phong uses halfway vector
+    float spec = pow(max(dot(norm, halfwayDir), 0.0), 32.0);
     
     // Vary specular intensity based on terrain type
-    float specularIntensity = heightVal > 0.85 ? 0.3 : 0.05; // Snow is more reflective
+    float specularIntensity = heightVal > 0.85 ? 0.4 : 0.1; // Snow is more reflective
     vec3 specular = specularIntensity * spec * lightColor;
     
     // Combine all lighting

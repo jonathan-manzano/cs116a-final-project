@@ -13,7 +13,7 @@ out vec2 tcTexCoord[];
 
 uniform vec3 viewPos;
 uniform float minTessLevel = 1.0;
-uniform float maxTessLevel = 8.0;
+uniform float maxTessLevel = 8.0;  // Back to 8 for smooth performance
 uniform float minDistance = 1.0;
 uniform float maxDistance = 15.0;
 
