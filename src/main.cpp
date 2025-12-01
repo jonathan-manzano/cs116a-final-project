@@ -30,6 +30,10 @@ float lastFrame = 0.0f;
 bool wireframeMode = false;
 bool tKeyPressed = false;
 
+// cursor capture toggle
+bool cursorCaptured = true;
+bool rKeyPressed = false;
+
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 void processInput(GLFWwindow* window);
@@ -404,6 +408,30 @@ void processInput(GLFWwindow* window)
         tKeyPressed = false;
     }
 
+    // toggle cursor capture with R key
+    if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS)
+    {
+        if (!rKeyPressed)
+        {
+            cursorCaptured = !cursorCaptured;
+            if (cursorCaptured)
+            {
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+                std::cout << "Cursor captured (camera control ON)\n";
+            }
+            else
+            {
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+                std::cout << "Cursor released (camera control OFF)\n";
+            }
+            rKeyPressed = true;
+        }
+    }
+    else
+    {
+        rKeyPressed = false;
+    }
+
     // close window with Esc
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
@@ -411,6 +439,13 @@ void processInput(GLFWwindow* window)
 
 void mouse_callback(GLFWwindow* window, double xpos, double ypos)
 {
+    // only process mouse movement if cursor is captured
+    if (!cursorCaptured)
+    {
+        firstMouse = true; // reset for when we re-capture
+        return;
+    }
+
     if (firstMouse)
     {
         lastX = static_cast<float>(xpos);
