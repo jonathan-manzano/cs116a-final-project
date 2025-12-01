@@ -9,7 +9,9 @@ class Shader {
 public:
     unsigned int ID;
 
-    Shader(const char* vertexPath, const char* fragmentPath)
+    // Constructor for shaders with tessellation
+    Shader(const char* vertexPath, const char* fragmentPath, 
+           const char* tessControlPath = nullptr, const char* tessEvalPath = nullptr)
     {
         //reading glsl files into strings
         std::string vCode, fCode;
@@ -36,15 +38,50 @@ public:
         glCompileShader(fragment);
         checkCompileErrors(fragment, "FRAGMENT");
 
-        // creates an empty shader program, attaches the compiled shaders, links them, then cleans up
+        // create program
         ID = glCreateProgram();
         glAttachShader(ID, vertex);
         glAttachShader(ID, fragment);
+
+        // compile and attach tessellation shaders if provided
+        unsigned int tessControl = 0, tessEval = 0;
+        if (tessControlPath != nullptr && tessEvalPath != nullptr)
+        {
+            std::string tcCode, teCode;
+            std::ifstream tcFile(tessControlPath), teFile(tessEvalPath);
+            
+            std::stringstream tcStream, teStream;
+            tcStream << tcFile.rdbuf();
+            teStream << teFile.rdbuf();
+            
+            tcCode = tcStream.str();
+            teCode = teStream.str();
+            
+            const char* tcShaderCode = tcCode.c_str();
+            const char* teShaderCode = teCode.c_str();
+
+            tessControl = glCreateShader(GL_TESS_CONTROL_SHADER);
+            glShaderSource(tessControl, 1, &tcShaderCode, nullptr);
+            glCompileShader(tessControl);
+            checkCompileErrors(tessControl, "TESS_CONTROL");
+
+            tessEval = glCreateShader(GL_TESS_EVALUATION_SHADER);
+            glShaderSource(tessEval, 1, &teShaderCode, nullptr);
+            glCompileShader(tessEval);
+            checkCompileErrors(tessEval, "TESS_EVALUATION");
+
+            glAttachShader(ID, tessControl);
+            glAttachShader(ID, tessEval);
+        }
+
         glLinkProgram(ID);
         checkCompileErrors(ID, "PROGRAM");
 
+        // cleanup
         glDeleteShader(vertex);
         glDeleteShader(fragment);
+        if (tessControl)  glDeleteShader(tessControl);
+        if (tessEval)     glDeleteShader(tessEval);
     }
 
     void use() const {
@@ -53,6 +90,14 @@ public:
 
     void setMat4(const std::string &name, const float* value) const {
         glUniformMatrix4fv(glGetUniformLocation(ID, name.c_str()), 1, GL_FALSE, value);
+    }
+
+    void setFloat(const std::string &name, float value) const {
+        glUniform1f(glGetUniformLocation(ID, name.c_str()), value);
+    }
+
+    void setVec3(const std::string &name, const float* value) const {
+        glUniform3fv(glGetUniformLocation(ID, name.c_str()), 1, value);
     }
 
 private:

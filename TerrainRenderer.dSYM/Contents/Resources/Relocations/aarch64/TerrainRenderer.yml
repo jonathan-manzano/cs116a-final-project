@@ -1,0 +1,5 @@
+---
+triple:          'arm64-apple-darwin'
+binary-path:     '/Users/akmal/Desktop/cs116a-final-project/TerrainRenderer'
+relocations:     []
+...

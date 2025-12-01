@@ -26,6 +26,10 @@ bool firstMouse = true;
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
+// wireframe mode toggle
+bool wireframeMode = false;
+bool tKeyPressed = false;
+
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 void processInput(GLFWwindow* window);
@@ -287,10 +291,12 @@ int main()
 
     // ---------------- Shader & matrices ----------------
 
-    Shader shader("shaders/vertex.glsl", "shaders/fragment.glsl");
+    Shader shader("shaders/vertex.glsl", "shaders/fragment.glsl",
+                  "shaders/tess_control.glsl", "shaders/tess_eval.glsl");
     shader.use();
 
-    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    // set patch size for tessellation (3 vertices = triangle)
+    glPatchParameteri(GL_PATCH_VERTICES, 3);
 
     // ---------------- Render loop ----------------
     while (!glfwWindowShouldClose(window))
@@ -301,6 +307,12 @@ int main()
         lastFrame = currentFrame;
 
         processInput(window);
+
+        // toggle wireframe mode
+        if (wireframeMode)
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        else
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
         glClearColor(0.1f, 0.2f, 0.3f, 1.0f); //background color
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -327,11 +339,11 @@ int main()
         shader.setMat4("view", &view[0][0]);
         shader.setMat4("projection", &projection[0][0]);
 
-        // set viewPos for specular lighting
-        glUniform3fv(glGetUniformLocation(shader.ID, "viewPos"), 1, &cameraPos[0]);
+        // set viewPos for distance-based LOD in tessellation and specular lighting
+        shader.setVec3("viewPos", &cameraPos[0]);
 
         glBindVertexArray(terrainVAO); // bind again, so OpenGL knows which vertices and indices to use which we set earlier
-        glDrawElements(GL_TRIANGLES,
+        glDrawElements(GL_PATCHES,
                        static_cast<GLsizei>(indices.size()),
                        GL_UNSIGNED_INT,
                        (void*)0);
@@ -377,6 +389,21 @@ void processInput(GLFWwindow* window)
     if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS)
         cameraPos -= cameraSpeed * cameraUp;
 
+    // toggle wireframe mode with T key
+    if (glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS)
+    {
+        if (!tKeyPressed)
+        {
+            wireframeMode = !wireframeMode;
+            tKeyPressed = true;
+            std::cout << "Wireframe mode: " << (wireframeMode ? "ON" : "OFF") << "\n";
+        }
+    }
+    else
+    {
+        tKeyPressed = false;
+    }
+
     // close window with Esc
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
@@ -413,5 +440,3 @@ void mouse_callback(GLFWwindow* window, double xpos, double ypos)
     front.z = sin(glm::radians(yaw)) * cos(glm::radians(pitch));
     cameraFront = glm::normalize(front);
 }
-
-
