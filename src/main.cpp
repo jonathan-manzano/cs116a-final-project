@@ -15,8 +15,8 @@
 // ============================================================================
 
 // Camera settings
-glm::vec3 cameraPos   = glm::vec3(0.0f, 1.0f, 3.0f);
-glm::vec3 cameraFront = glm::vec3(0.0f, 0.0f, -1.0f);
+glm::vec3 cameraPos   = glm::vec3(0.0f, 10.0f, 20.0f);  // Start position for 50x50 map
+glm::vec3 cameraFront = glm::normalize(glm::vec3(0.0f, -0.3f, -1.0f));   // Look down slightly
 glm::vec3 cameraUp    = glm::vec3(0.0f, 1.0f, 0.0f);
 float yaw   = -90.0f;
 float pitch = -20.0f;
@@ -38,9 +38,16 @@ bool tKeyPressed = false;
 // Cursor control - click and hold to look around
 bool cameraControlActive = false;
 
+// Forward declaration for collision detection
+struct TerrainMesh;
+
+// Collision detection
+const float CAMERA_HEIGHT_OFFSET = 0.15f;  // Height above terrain
+TerrainMesh* g_terrainMesh = nullptr;       // Global access for collision
+
 // Terrain settings
-const int HEIGHTMAP_STEP = 8;
-const float HEIGHT_SCALE = .375f;  
+const int HEIGHTMAP_STEP = 5;        // Reduced from 8 for more detail
+const float HEIGHT_SCALE = 3.0f;     // Increased for taller peaks
 
 // Skybox cube vertices (36 vertices, 6 faces)
 const float skyboxVertices[] = {
@@ -96,6 +103,7 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods);
 void processInput(GLFWwindow* window);
+float getTerrainHeightAt(float worldX, float worldZ);
 
 // ============================================================================
 // TERRAIN MESH GENERATION
@@ -139,9 +147,10 @@ TerrainMesh generateTerrainMesh(const unsigned char* heightmapData,
             unsigned char heightByte = heightmapData[imgIndex];
             float normalizedHeight = static_cast<float>(heightByte) / 255.0f;
             
-            // Calculate world position
-            float x = (static_cast<float>(i) / (mesh.gridWidth - 1)) * 2.0f - 1.0f;
-            float z = (static_cast<float>(j) / (mesh.gridHeight - 1)) * 2.0f - 1.0f;
+            // Map grid position to 3D X, Z coordinates
+            // World: -30 to 30 (60x60 world)
+            float x = (static_cast<float>(i) / (mesh.gridWidth - 1)) * 60.0f - 30.0f;
+            float z = (static_cast<float>(j) / (mesh.gridHeight - 1)) * 60.0f - 30.0f;
             float y = normalizedHeight * HEIGHT_SCALE;
             
             // Calculate UV coordinates (0 to 1)
@@ -205,6 +214,50 @@ TerrainMesh generateTerrainMesh(const unsigned char* heightmapData,
     }
     
     return mesh;
+}
+
+// ============================================================================
+// COLLISION DETECTION
+// ============================================================================
+
+float getTerrainHeightAt(float worldX, float worldZ)
+{
+    if (!g_terrainMesh) return 0.0f;
+    
+    // Convert world coordinates back to grid coordinates
+    // World space: -30 to 30, Grid space: 0 to gridWidth-1
+    float gridX = (worldX + 30.0f) / 60.0f * (g_terrainMesh->gridWidth - 1);
+    float gridZ = (worldZ + 30.0f) / 60.0f * (g_terrainMesh->gridHeight - 1);
+    
+    // Clamp to valid grid range
+    if (gridX < 0 || gridX >= g_terrainMesh->gridWidth - 1 ||
+        gridZ < 0 || gridZ >= g_terrainMesh->gridHeight - 1)
+    {
+        return 0.0f;  // Outside terrain bounds
+    }
+    
+    // Get integer grid coordinates
+    int x0 = static_cast<int>(gridX);
+    int z0 = static_cast<int>(gridZ);
+    int x1 = x0 + 1;
+    int z1 = z0 + 1;
+    
+    // Get fractional part for interpolation
+    float fx = gridX - x0;
+    float fz = gridZ - z0;
+    
+    // Get heights at four corners of grid cell
+    float h00 = g_terrainMesh->vertices[z0 * g_terrainMesh->gridWidth + x0].position.y;
+    float h10 = g_terrainMesh->vertices[z0 * g_terrainMesh->gridWidth + x1].position.y;
+    float h01 = g_terrainMesh->vertices[z1 * g_terrainMesh->gridWidth + x0].position.y;
+    float h11 = g_terrainMesh->vertices[z1 * g_terrainMesh->gridWidth + x1].position.y;
+    
+    // Bilinear interpolation
+    float h0 = h00 * (1 - fx) + h10 * fx;
+    float h1 = h01 * (1 - fx) + h11 * fx;
+    float height = h0 * (1 - fz) + h1 * fz;
+    
+    return height;
 }
 
 // ============================================================================
@@ -286,6 +339,9 @@ int main()
                                               HEIGHTMAP_STEP);
     stbi_image_free(imageData);
     
+    // Set global pointer for collision detection
+    g_terrainMesh = &terrain;
+    
     std::cout << "Generated terrain mesh:\n";
     std::cout << "  Vertices: " << terrain.vertices.size() << "\n";
     std::cout << "  Triangles: " << terrain.indices.size() / 3 << "\n";
@@ -318,21 +374,24 @@ int main()
     
     // Position attribute (location = 0)
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(TerrainVertex),
-                          (void*)offsetof(TerrainVertex, position));
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(TerrainVertex), (void*)0);
     
     // Normal attribute (location = 1)
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(TerrainVertex),
-                          (void*)offsetof(TerrainVertex, normal));
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(TerrainVertex), 
+                        (void*)offsetof(TerrainVertex, normal));
     
     // UV attribute (location = 2)
     glEnableVertexAttribArray(2);
-    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(TerrainVertex),
-                          (void*)offsetof(TerrainVertex, texCoord));
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(TerrainVertex), 
+                        (void*)offsetof(TerrainVertex, texCoord));
     
     glBindVertexArray(0);
 
+    // ========================================================================
+    // SETUP SKYBOX
+    // ========================================================================
+    
     // ========================================================================
     // SETUP SKYBOX
     // ========================================================================
@@ -398,7 +457,7 @@ int main()
         // Setup matrices (used by both skybox and terrain)
         glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
         glm::mat4 projection = glm::perspective(glm::radians(fov), 800.0f / 600.0f, 
-                                                0.1f, 100.0f);
+                                                0.1f, 180.0f);  // Far plane for 60x60 map
 
         // ===== RENDER SKYBOX =====
         glDepthFunc(GL_LEQUAL); // Change depth function for skybox
@@ -452,25 +511,68 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 
 void processInput(GLFWwindow* window)
 {
-    float cameraSpeed = 3.0f * deltaTime;
+    float cameraSpeed = 20.0f * deltaTime;  // Faster speed for 50x50 map
 
-    // Camera movement (WASD)
+    // Test each movement direction separately for collision
+    glm::vec3 proposedPos = cameraPos;
+
+    // Forward/Back movement (W/S)
     if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-        cameraPos += cameraSpeed * cameraFront;
+    {
+        proposedPos = cameraPos + cameraSpeed * cameraFront;
+        float terrainHeight = getTerrainHeightAt(proposedPos.x, proposedPos.z);
+        if (proposedPos.y >= terrainHeight + CAMERA_HEIGHT_OFFSET)
+            cameraPos = proposedPos;  // Accept movement
+        else
+            cameraPos.y = terrainHeight + CAMERA_HEIGHT_OFFSET;  // Clamp Y only
+    }
     if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-        cameraPos -= cameraSpeed * cameraFront;
+    {
+        proposedPos = cameraPos - cameraSpeed * cameraFront;
+        float terrainHeight = getTerrainHeightAt(proposedPos.x, proposedPos.z);
+        if (proposedPos.y >= terrainHeight + CAMERA_HEIGHT_OFFSET)
+            cameraPos = proposedPos;  // Accept movement
+        else
+            cameraPos.y = terrainHeight + CAMERA_HEIGHT_OFFSET;  // Clamp Y only
+    }
 
+    // Left/Right movement (A/D)
     glm::vec3 cameraRight = glm::normalize(glm::cross(cameraFront, cameraUp));
     if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-        cameraPos -= cameraSpeed * cameraRight;
+    {
+        proposedPos = cameraPos - cameraSpeed * cameraRight;
+        float terrainHeight = getTerrainHeightAt(proposedPos.x, proposedPos.z);
+        if (proposedPos.y >= terrainHeight + CAMERA_HEIGHT_OFFSET)
+            cameraPos = proposedPos;  // Accept movement
+        else
+            cameraPos.y = terrainHeight + CAMERA_HEIGHT_OFFSET;  // Clamp Y only
+    }
     if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-        cameraPos += cameraSpeed * cameraRight;
+    {
+        proposedPos = cameraPos + cameraSpeed * cameraRight;
+        float terrainHeight = getTerrainHeightAt(proposedPos.x, proposedPos.z);
+        if (proposedPos.y >= terrainHeight + CAMERA_HEIGHT_OFFSET)
+            cameraPos = proposedPos;  // Accept movement
+        else
+            cameraPos.y = terrainHeight + CAMERA_HEIGHT_OFFSET;  // Clamp Y only
+    }
 
-    // Camera up/down (Space/Ctrl)
+    // Vertical movement (Space/Ctrl) - no horizontal collision check needed
     if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
-        cameraPos += cameraSpeed * cameraUp;
+        cameraPos.y += cameraSpeed;
     if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS)
-        cameraPos -= cameraSpeed * cameraUp;
+    {
+        cameraPos.y -= cameraSpeed;
+        // Still can't go below terrain
+        float terrainHeight = getTerrainHeightAt(cameraPos.x, cameraPos.z);
+        if (cameraPos.y < terrainHeight + CAMERA_HEIGHT_OFFSET)
+            cameraPos.y = terrainHeight + CAMERA_HEIGHT_OFFSET;
+    }
+
+    // Final safety check - ensure we're always above terrain
+    float finalTerrainHeight = getTerrainHeightAt(cameraPos.x, cameraPos.z);
+    if (cameraPos.y < finalTerrainHeight + CAMERA_HEIGHT_OFFSET)
+        cameraPos.y = finalTerrainHeight + CAMERA_HEIGHT_OFFSET;
 
     // Toggle wireframe mode (T key)
     if (glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS)

@@ -73,7 +73,7 @@ void main()
     float detailNoise = fbm(TexCoord * detailScale);
     
     // Apply displacement only to mid-high elevations (not water)
-    float heightFactor = pos.y / 0.35; // Updated to match HEIGHT_SCALE
+    float heightFactor = pos.y / 2.5; // Updated to match HEIGHT_SCALE
     float displacementAmount = smoothstep(0.15, 1.0, heightFactor);
     
     // Add subtle vertical displacement - reduced for less spikiness
@@ -96,5 +96,5 @@ void main()
     gl_Position = projection * view * worldPos;
     
     // Pass normalized height (0-1) to fragment shader
-    heightVal = pos.y / 0.35; // Updated to match HEIGHT_SCALE
+    heightVal = pos.y / 2.5; // Updated to match HEIGHT_SCALE
 }
